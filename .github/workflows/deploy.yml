@@ -19,6 +19,13 @@ jobs:
         uses: actions/checkout@v3
 
       # Step 2: Configure AWS credentials
+      # Install or update AWS CLI (Optional)
+      - name: Install AWS CLI v2
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
@@ -27,7 +34,6 @@ jobs:
 
       # Step 3: Log in to Amazon ECR
       - name: Log in to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       # Step 4: Build and push Docker image to ECR
@@ -48,7 +54,5 @@ jobs:
         run: |
           SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='hermes-backend-service'].ServiceArn | [0]" --output text)
           IMAGE_TAG=$(git rev-parse --short HEAD)  # Match the tag pushed to ECR
-          aws apprunner update-service --service-arn $SERVICE_ARN --source-configuration ImageRepository={
-            ImageIdentifier=$ECR_REPOSITORY_URI:$IMAGE_TAG,
-            ImageConfiguration={Port=8080}
-          }
+          aws apprunner update-service --service-arn "$SERVICE_ARN" --source-configuration \
+          '{"ImageRepository": {"ImageIdentifier": "'"$ECR_REPOSITORY_URI:$IMAGE_TAG"'", "ImageConfiguration": {"Port": "8080"}}}'
