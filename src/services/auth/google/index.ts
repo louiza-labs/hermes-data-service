@@ -2,12 +2,10 @@ import { createClient } from "@supabase/supabase-js";
 import { google } from "googleapis";
 import { EncryptionService } from "../../encryption";
 
-const localRedirectUri = "http://localhost:8080/api/auth/google/callback";
-
 const oauth2Client = new google.auth.OAuth2(
 	process.env.GOOGLE_CLIENT_ID,
 	process.env.GOOGLE_CLIENT_SECRET,
-	process.env.REDIRECT_URI ?? "https://hermes-data-service-muddy-cloud-3029.fly.dev/api/auth/google/callback"
+	process.env.REDIRECT_URI
 );
 
 const supabase = createClient(process.env.SUPABASE_URL as string, process.env.SUPABASE_ANON_KEY as string);
