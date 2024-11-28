@@ -1,0 +1,54 @@
+name: Deploy to AWS App Runner
+
+on:
+  push:
+    branches:
+      - main # Adjust to the branch triggering deployments
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write # Required for OIDC
+      contents: read # To access the repository
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Step 3: Log in to Amazon ECR
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Step 4: Build and push Docker image to ECR
+      - name: Build and Push to ECR
+        env:
+          ECR_REPOSITORY_URI: 481665099931.dkr.ecr.us-east-1.amazonaws.com/louiza-labs/hermes-backend # Replace with your ECR URI
+        run: |
+          IMAGE_TAG=$(git rev-parse --short HEAD)  # Use the short commit hash as the tag
+          docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG .
+          docker tag $ECR_REPOSITORY_URI:$IMAGE_TAG $ECR_REPOSITORY_URI:latest
+          docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+          docker push $ECR_REPOSITORY_URI:latest
+
+      # Step 5: Update App Runner service
+      - name: Update App Runner Service
+        env:
+          ECR_REPOSITORY_URI: 481665099931.dkr.ecr.us-east-1.amazonaws.com/louiza-labs/hermes-backend # Replace with your ECR URI
+        run: |
+          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='hermes-backend-service'].ServiceArn | [0]" --output text)
+          IMAGE_TAG=$(git rev-parse --short HEAD)  # Match the tag pushed to ECR
+          aws apprunner update-service --service-arn $SERVICE_ARN --source-configuration ImageRepository={
+            ImageIdentifier=$ECR_REPOSITORY_URI:$IMAGE_TAG,
+            ImageConfiguration={Port=8080}
+          }
