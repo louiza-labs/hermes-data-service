@@ -1,5 +1,5 @@
-import { uploadMultiplePreferences } from "../../../services/account/preferences";
 import { createUser } from "../../../services/account/user";
+import { uploadMultiplePreferences } from "../../../services/account/verify/preferences";
 import { uploadConnections } from "../../../services/connections/linkedin";
 
 export async function createAccountHandler(c: any) {

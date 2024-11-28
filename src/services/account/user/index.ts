@@ -32,6 +32,7 @@ export async function createUser({ user_id, name, email }: { user_id: string; na
 
 export async function getUser({ user_id }: { user_id: string }) {
 	try {
+		console.log("fetching user:", user_id);
 		const { data, error } = await supabase.from("users").select("*").eq("user_id", user_id);
 
 		if (error) {

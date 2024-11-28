@@ -1,6 +1,6 @@
 import { generateMatchingJobsForConnections } from "../../lib/intros";
-import { getPreferences } from "../../services/account/preferences";
 import { getUser } from "../../services/account/user";
+import { getPreferences } from "../../services/account/verify/preferences";
 import { getLinkedinConnectionsFromDB } from "../../services/connections/linkedin";
 import { sendEmail } from "../../services/email";
 import { getJobsFromLinkedinFromDB } from "../../services/jobs";

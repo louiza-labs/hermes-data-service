@@ -14,7 +14,7 @@ export const runJobScraper = async ({
 	// Initialize the scraper instance
 	const scraper = new LinkedinScraper({
 		headless: true,
-		slowMo: 500,
+		slowMo: 1000,
 		timeout: 600000,
 	});
 
@@ -46,7 +46,7 @@ export const runJobScraper = async ({
 	// Error handling
 	scraper.on(events.scraper.error, (err) => {
 		console.error("Scraper error:", err);
-		if (err.message.includes("502")) {
+		if (err instanceof Error && err.message.includes("502")) {
 			console.log("Encountered 502 error, continuing with scraping...");
 			return;
 		}

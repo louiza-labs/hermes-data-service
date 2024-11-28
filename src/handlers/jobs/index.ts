@@ -1,6 +1,6 @@
 import { generateMatchingJobsForConnections } from "../../lib/intros";
 import { normalizeJobData } from "../../lib/normalization";
-import { getPreferences } from "../../services/account/preferences";
+import { getPreferences } from "../../services/account/verify/preferences";
 import { getLinkedinConnectionsFromDB } from "../../services/connections/linkedin";
 import { getJobsFromLinkedin, getJobsFromLinkedinFromDB, uploadJobsFromLinkedInToDB } from "../../services/jobs";
 import { runJobScraper } from "../../services/jobs/scraper";

@@ -1,4 +1,4 @@
-import { deletePreferences, getPreferences, uploadPreference } from "../../../services/account/preferences";
+import { deletePreferences, getPreferences, uploadPreference } from "../../../services/account/verify/preferences";
 
 export async function addPreferenceForUser(c: any) {
 	const body = await c.req.json();

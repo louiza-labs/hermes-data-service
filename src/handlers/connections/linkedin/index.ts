@@ -1,6 +1,6 @@
 import { filterConnectionsByCompanyPreferences, filterConnectionsByPositionPreferences } from "../../../lib/filtering";
 import { addJobToConnection } from "../../../lib/normalization";
-import { getPreferences } from "../../../services/account/preferences";
+import { getPreferences } from "../../../services/account/verify/preferences";
 import { getLinkedinConnectionsFromDB, uploadConnections } from "../../../services/connections/linkedin";
 import { getJobsFromLinkedinFromDB } from "../../../services/jobs";
 
