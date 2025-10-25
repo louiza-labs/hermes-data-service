@@ -1,32 +1,32 @@
-ARG BUN_VERSION=1.1.26
-FROM oven/bun:${BUN_VERSION}-slim as base
-
+# Use the official Bun image
+FROM oven/bun:1 AS base
 WORKDIR /app
-ENV NODE_ENV="production"
 
-# Build stage
-FROM base as build
+# Install dependencies (with cache mount for better performance)
+FROM base AS deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
 
-# Install build dependencies
-RUN apt-get update -qq && apt-get install --no-install-recommends -y build-essential pkg-config python-is-python3
+# Copy source code
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
-# Copy package files
-COPY --link bun.lockb package.json ./
+# Production image
+FROM base AS release
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/src ./src
+COPY --from=build /app/package.json ./
 
-# Install dependencies
-RUN bun install --ci
+# Run as non-root user for security
+USER bun
 
-# Copy application code
-COPY --link . .
-
-# Final stage for the app image
-FROM base
-
-# Copy built application from the build stage
-COPY --from=build /app /app
-
-# Expose the port your application listens on
+# Expose the port the app runs on (Google Cloud Run uses PORT env var)
 EXPOSE 8080
 
-# Set the command to run your application
-CMD [ "bun", "run", "start" ]
+# Set environment to production
+ENV NODE_ENV=production
+
+# Start the application
+CMD ["bun", "run", "src/index.ts"]
+
