@@ -1,29 +1,30 @@
 {
-	"name": "hermes-data-service",
-	"scripts": {
-		"dev": "bun run --hot src/index.ts",
-		"start": "bun run src/index.ts",
-		"fun": "bun run src/lib/fun/index.ts"
-	},
-	"dependencies": {
-		"@ai-sdk/openai": "^0.0.68",
-		"@supabase/supabase-js": "^2.45.4",
-		"ai": "^3.4.17",
-		"axios": "^1.7.7",
-		"crypto": "^1.0.1",
-		"dotenv": "^16.4.5",
-		"googleapis": "^144.0.0",
-		"hono": "^4.5.11",
-		"linkedin-jobs-api": "^1.0.5",
-		"linkedin-jobs-scraper": "^17.0.1",
-		"pino": "^9.4.0",
-		"postmark": "^4.0.5",
-		"redis": "^4.7.0",
-		"twitter-api-sdk": "^1.2.1",
-		"zod": "^3.23.8"
-	},
-	"devDependencies": {
-		"@flydotio/dockerfile": "^0.5.8",
-		"@types/bun": "^1.1.11"
-	}
+  "name": "hermes-data-service",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "fun": "bun run src/lib/fun/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^0.0.68",
+    "@supabase/supabase-js": "^2.45.4",
+    "ai": "^3.4.17",
+    "axios": "^1.7.7",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "hono": "^4.5.11",
+    "linkedin-jobs-api": "^1.0.5",
+    "linkedin-jobs-scraper": "^17.0.1",
+    "pino": "^9.4.0",
+    "playwright": "^1.56.1",
+    "postmark": "^4.0.5",
+    "redis": "^4.7.0",
+    "twitter-api-sdk": "^1.2.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.5.8",
+    "@types/bun": "^1.1.11"
+  }
 }

@@ -1,90 +1,248 @@
-import { events, LinkedinScraper, onSiteOrRemoteFilter, timeFilter, typeFilter } from "linkedin-jobs-scraper";
+import { createAuthenticatedScraper } from "./authenticated-scraper";
+import { JobData } from "./custom-scraper";
+import { createEnhancedScraper } from "./enhanced-scraper";
+import { createSimpleScraper, SimpleJobData } from "./simple-scraper";
 
+// Legacy function for backward compatibility
 export const runJobScraper = async ({
-	position,
-	location,
-	offset,
-	companyJobsUrl,
+  position,
+  location,
+  offset,
+  companyJobsUrl,
 }: {
-	position?: string;
-	location: string;
-	offset?: number;
-	companyJobsUrl?: string;
+  position?: string;
+  location: string;
+  offset?: number;
+  companyJobsUrl?: string;
 }) => {
-	// Initialize the scraper instance
-	const scraper = new LinkedinScraper({
-		headless: true,
-		slowMo: 1000,
-		timeout: 600000,
-	});
+  console.log("Using custom in-house LinkedIn scraper...");
 
-	const jobs: Array<any> = [];
+  const scraper = await createEnhancedScraper({
+    headless: true,
+    slowMo: 500, // Faster
+    timeout: 30000, // 30 seconds instead of 10 minutes
+    enableRateLimiting: true,
+    maxConcurrentRequests: 2,
+    requestDelay: 1000, // Faster
+    enableJobDescriptionScraping: false,
+    enableRetryMechanism: true,
+    maxRetries: 2, // Fewer retries for faster testing
+  });
 
-	// Add listeners for scraper events
+  try {
+    const jobs = await scraper.scrapeJobsWithRetry({
+      position,
+      location,
+      offset,
+      companyJobsUrl,
+      limit: 100,
+    });
 
-	// Emitted once for each processed job
-	scraper.on(events.scraper.data, (data) => {
-		jobs.push({
-			location: data.location,
-			id: data.jobId,
-			title: data.title,
-			company: data.company || "N/A",
-			companyLink: data.companyLink || "N/A",
-			companyImgLink: data.companyImgLink || "N/A",
-			place: data.place,
-			date: data.date,
-			link: data.link,
-			applyLink: data.applyLink || "N/A",
-		});
-	});
+    // Transform to legacy format for backward compatibility
+    const legacyJobs = jobs.map((job: JobData) => ({
+      location: job.location,
+      id: job.id,
+      title: job.title,
+      company: job.company || "N/A",
+      companyLink: job.companyLink || "N/A",
+      companyImgLink: job.companyImgLink || "N/A",
+      place: job.location,
+      date: job.date,
+      link: job.link,
+      applyLink: job.applyLink || "N/A",
+    }));
 
-	// Emitted once for each scraped page
-	scraper.on(events.scraper.metrics, (metrics) => {
-		console.log(`Processed=${metrics.processed}, Failed=${metrics.failed}, Missed=${metrics.missed}`);
-	});
+    console.log(`Successfully scraped ${legacyJobs.length} jobs`);
+    return legacyJobs;
+  } catch (error) {
+    console.error(
+      "Enhanced scraper failed, trying simple scraper fallback:",
+      error
+    );
 
-	// Error handling
-	scraper.on(events.scraper.error, (err) => {
-		console.error("Scraper error:", err);
-		if (err instanceof Error && err.message.includes("502")) {
-			console.log("Encountered 502 error, continuing with scraping...");
-			return;
-		}
-	});
+    // Fallback to simple scraper
+    try {
+      console.log("Attempting fallback with simple scraper...");
+      const simpleScraper = await createSimpleScraper();
 
-	// When the scraper ends
-	scraper.on(events.scraper.end, () => {
-		console.log("All done!");
-	});
+      const simpleJobs = await simpleScraper.scrapeJobs({
+        position,
+        location,
+        limit: 100,
+      });
 
-	// Custom function executed on the browser side to extract job description [optional]
-	const descriptionFn = () => {
-		const description = document.querySelector<HTMLElement>(".jobs-description");
-		return description ? description.innerText.replace(/[\s\n\r]+/g, " ").trim() : "N/A";
-	};
+      // Transform simple jobs to legacy format
+      const fallbackJobs = simpleJobs.map((job: SimpleJobData) => ({
+        location: job.location,
+        id: job.id,
+        title: job.title,
+        company: job.company || "N/A",
+        companyLink: "N/A",
+        companyImgLink: "N/A",
+        place: job.location,
+        date: job.date,
+        link: job.link,
+        applyLink: "N/A",
+      }));
 
-	// Run queries concurrently
-	await scraper.run([
-		{
-			query: position ?? undefined,
-			options: {
-				pageOffset: offset ?? 1,
-				locations: location ? [location] : ["United States"],
-				filters: {
-					type: [typeFilter.FULL_TIME],
-					time: timeFilter.WEEK,
-					companyJobsUrl: companyJobsUrl ?? undefined,
-					onSiteOrRemote: [onSiteOrRemoteFilter.ON_SITE, onSiteOrRemoteFilter.REMOTE, onSiteOrRemoteFilter.HYBRID],
-					// baseSalary: baseSalaryFilter.SALARY_100K,
-				},
-				limit: 30,
-			},
-		},
-	]);
+      console.log(`Simple scraper found ${fallbackJobs.length} jobs`);
+      await simpleScraper.close();
+      return fallbackJobs;
+    } catch (fallbackError) {
+      console.error("Simple scraper also failed:", fallbackError);
+      throw error; // Throw original error
+    }
+  } finally {
+    await scraper.close();
+  }
+};
 
-	// Close the browser
-	await scraper.close();
+// New enhanced scraper function
+export const runEnhancedJobScraper = async ({
+  position,
+  location,
+  offset,
+  companyJobsUrl,
+  enableDescriptions = false,
+  limit = 100,
+}: {
+  position?: string;
+  location: string;
+  offset?: number;
+  companyJobsUrl?: string;
+  enableDescriptions?: boolean;
+  limit?: number;
+}) => {
+  const scraper = await createEnhancedScraper({
+    headless: true,
+    slowMo: 1000,
+    timeout: 600000,
+    enableRateLimiting: true,
+    maxConcurrentRequests: 2,
+    requestDelay: 2000,
+    enableJobDescriptionScraping: enableDescriptions,
+    enableRetryMechanism: true,
+    maxRetries: 3,
+  });
 
-	// Return the accumulated job data
-	return jobs;
+  try {
+    const jobs = enableDescriptions
+      ? await scraper.scrapeJobsWithDescriptions({
+          position,
+          location,
+          offset,
+          companyJobsUrl,
+          limit,
+        })
+      : await scraper.scrapeJobsWithRetry({
+          position,
+          location,
+          offset,
+          companyJobsUrl,
+          limit,
+        });
+
+    console.log(`Successfully scraped ${jobs.length} jobs`);
+    return jobs;
+  } catch (error) {
+    console.error("Enhanced scraper failed:", error);
+    throw error;
+  } finally {
+    await scraper.close();
+  }
+};
+
+// Batch scraping function for multiple locations/positions
+export const runBatchJobScraper = async (
+  searchParams: Array<{
+    position?: string;
+    location: string;
+    offset?: number;
+    companyJobsUrl?: string;
+    limit?: number;
+  }>
+) => {
+  const scraper = await createEnhancedScraper({
+    headless: true,
+    slowMo: 1000,
+    timeout: 600000,
+    enableRateLimiting: true,
+    maxConcurrentRequests: 1, // Be more conservative for batch operations
+    requestDelay: 3000,
+    enableJobDescriptionScraping: false,
+    enableRetryMechanism: true,
+    maxRetries: 3,
+  });
+
+  try {
+    const allJobs = await scraper.batchScrapeJobs(searchParams);
+    console.log(
+      `Successfully scraped ${allJobs.length} jobs across ${searchParams.length} searches`
+    );
+    return allJobs;
+  } catch (error) {
+    console.error("Batch scraper failed:", error);
+    throw error;
+  } finally {
+    await scraper.close();
+  }
+};
+
+// Authenticated scraper function
+export const runAuthenticatedJobScraper = async ({
+  position,
+  location,
+  offset,
+  companyJobsUrl,
+  limit = 100,
+}: {
+  position?: string;
+  location: string;
+  offset?: number;
+  companyJobsUrl?: string;
+  limit?: number;
+}) => {
+  console.log("Using authenticated LinkedIn scraper...");
+
+  const scraper = await createAuthenticatedScraper({
+    headless: true,
+    slowMo: 500,
+    timeout: 30000,
+    delayBetweenRequests: 1000,
+    maxRetries: 2,
+  });
+
+  try {
+    const jobs = await scraper.scrapeJobs({
+      position,
+      location,
+      offset,
+      companyJobsUrl,
+      limit,
+    });
+
+    // Transform to legacy format for backward compatibility
+    const legacyJobs = jobs.map((job: JobData) => ({
+      location: job.location,
+      id: job.id,
+      title: job.title,
+      company: job.company || "N/A",
+      companyLink: job.companyLink || "N/A",
+      companyImgLink: job.companyImgLink || "N/A",
+      place: job.location,
+      date: job.date,
+      link: job.link,
+      applyLink: job.applyLink || "N/A",
+    }));
+
+    console.log(
+      `Successfully scraped ${legacyJobs.length} jobs with authentication`
+    );
+    return legacyJobs;
+  } catch (error) {
+    console.error("Authenticated scraper failed:", error);
+    throw error;
+  } finally {
+    await scraper.close();
+  }
 };

@@ -18,6 +18,20 @@ import subscriptionRoute from "./routes/subscribe";
 const app = new Hono();
 configDotenv();
 
+// Configure server timeout
+app.use(async (c, next) => {
+  // Set a longer timeout for requests
+  const timeout = setTimeout(() => {
+    c.res = new Response("Request timeout", { status: 408 });
+  }, 120000); // 2 minutes timeout
+
+  try {
+    await next();
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 app.use(logger());
 // NEEDS TO BE BEFORE BEARER AUTH
 app.route("/api", authRoute);
