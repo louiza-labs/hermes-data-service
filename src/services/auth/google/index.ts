@@ -30,6 +30,29 @@ export const getGoogleAuthUrl = (state: string): string => {
   });
 };
 
+// Validates that tokens have the required Gmail API permissions
+const validateGmailTokenPermissions = async (auth: any) => {
+  try {
+    const gmail = google.gmail("v1");
+    // Test with a simple API call to verify permissions
+    await gmail.users.messages.list({
+      auth,
+      userId: "me",
+      maxResults: 1,
+    });
+    return true;
+  } catch (error: any) {
+    if (error.code === 403 || error.response?.status === 403) {
+      console.error(
+        "Token validation failed: 403 Insufficient Permission. Tokens may not have the required Gmail scopes."
+      );
+      return false;
+    }
+    // For other errors, assume permissions are OK (might be rate limiting, etc.)
+    return true;
+  }
+};
+
 // Exchanges code for tokens and saves them in Supabase
 export const exchangeCodeForTokens = async (code: string, userId: string) => {
   try {
@@ -43,6 +66,21 @@ export const exchangeCodeForTokens = async (code: string, userId: string) => {
 
     if (!email) {
       throw new Error("No email found in Google response");
+    }
+
+    // Validate that tokens have Gmail API permissions BEFORE saving
+    console.log(`Validating Gmail API permissions for ${email}...`);
+    const hasValidPermissions = await validateGmailTokenPermissions(
+      oauth2Client
+    );
+
+    if (!hasValidPermissions) {
+      console.warn(
+        `WARNING: Tokens for ${email} failed permission validation. User may need to re-authenticate and explicitly grant Gmail permissions.`
+      );
+      // Still save the tokens, but log the warning - the retry logic will handle it
+    } else {
+      console.log(`Token validation successful for ${email}`);
     }
 
     const expiryDate = tokens.expiry_date as number;
@@ -74,8 +112,10 @@ export const exchangeCodeForTokens = async (code: string, userId: string) => {
 
       if (accountIndex >= 0) {
         existingAccounts[accountIndex] = newEmailAccount;
+        console.log(`Replaced tokens for existing account: ${email}`);
       } else {
         existingAccounts.push(newEmailAccount);
+        console.log(`Added new account: ${email}`);
       }
 
       await supabase
@@ -90,6 +130,7 @@ export const exchangeCodeForTokens = async (code: string, userId: string) => {
           accounts: [newEmailAccount],
         },
       });
+      console.log(`Created new user_tokens entry for ${email}`);
     }
 
     return { tokens, email };
@@ -124,6 +165,8 @@ export const getTokensFromSupabase = async (userId: string) => {
       refresh_token: await encryptionService.decrypt(account.refresh_token),
     }))
   );
+
+  console.log("the decryptedAccounts", decryptedAccounts);
 
   console.log(
     `Found ${decryptedAccounts.length} email accounts for user ${userId}`
@@ -164,8 +207,15 @@ export const refreshAccessToken = async (
   email: string
 ) => {
   try {
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const { credentials } = await oauth2Client.refreshAccessToken();
+    // Create a new OAuth2 client instance to avoid race conditions when refreshing multiple accounts in parallel
+    const clientForRefresh = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.REDIRECT_URI
+    );
+
+    clientForRefresh.setCredentials({ refresh_token: refreshToken });
+    const { credentials } = await clientForRefresh.refreshAccessToken();
 
     const emailAccounts = await getTokensFromSupabase(userId);
     const updatedAccounts = emailAccounts.map((account: any) => {
@@ -195,10 +245,51 @@ export const isTokenExpired = (expiryDate: number): boolean => {
   return currentTime >= expiryDate - 300; // Refresh 5 minutes before expiration
 };
 
+// Force refresh a token for a specific email account (used when 403 errors occur)
+export const forceRefreshTokenForEmail = async (
+  userId: string,
+  email: string
+) => {
+  try {
+    const tokens = await getTokensFromSupabase(userId);
+    const tokenData = tokens.find((t: any) => t.email === email);
+
+    if (!tokenData?.refresh_token) {
+      throw new Error(`No refresh token found for email: ${email}`);
+    }
+
+    console.log(`Force refreshing token for email: ${email}`);
+    const newCredentials = await refreshAccessToken(
+      tokenData.refresh_token,
+      userId,
+      email
+    );
+
+    const updatedTokens = tokens.map((t: any) => {
+      if (t.email === email) {
+        return {
+          ...t,
+          access_token: newCredentials.access_token,
+          refresh_token: newCredentials.refresh_token || t.refresh_token,
+          expiry_date: newCredentials.expiry_date,
+        };
+      }
+      return t;
+    });
+
+    await updateTokensInSupabase(userId, updatedTokens);
+    return updatedTokens.find((t: any) => t.email === email);
+  } catch (error) {
+    console.error(`Error force refreshing token for ${email}:`, error);
+    throw error;
+  }
+};
+
 // Ensure fresh tokens are available
 export const ensureFreshTokens = async (userId: string) => {
   try {
     const tokens = await getTokensFromSupabase(userId);
+    console.log("the tokens from supabase", tokens);
     console.log(`Refreshing tokens for ${tokens.length} email accounts`);
 
     const refreshedTokens = await Promise.all(

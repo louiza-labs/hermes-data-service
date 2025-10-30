@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 
 import { handleGetEmailAccounts } from "../../handlers/emails/accounts";
-import { handleGetAllEmails, handleGetEmails } from "../../handlers/emails/gmail";
+import {
+  handleGetAllEmails,
+  handleGetEmails,
+} from "../../handlers/emails/gmail";
 type Variables = {
-	jwtPayload: {
-		sub: string; // User ID
-		exp: number; // Token expiration
-	};
+  jwtPayload: {
+    sub: string; // User ID
+    exp: number; // Token expiration
+  };
 };
 const emails = new Hono();
 

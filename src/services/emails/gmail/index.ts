@@ -7,7 +7,11 @@ import {
   sanitizeAndTruncate,
 } from "../../../lib/emails";
 import { determineEmailTypeWithoutAI } from "../../../lib/emails/helpers";
-import { ensureFreshTokens, getTokensFromSupabase } from "../../auth/google";
+import {
+  ensureFreshTokens,
+  forceRefreshTokenForEmail,
+  getTokensFromSupabase,
+} from "../../auth/google";
 import { BatchResult, GetAllEmailsOptions } from "../types";
 
 const gmail = google.gmail("v1");
@@ -30,7 +34,7 @@ export const getGmailEmails = async (
       : tokens;
 
     console.log(`Processing ${tokensToProcess.length} email account(s)`);
-
+    console.log("the tokens to process", tokensToProcess);
     const allEmailResults = await Promise.all(
       tokensToProcess.map(async (tokenData: any) => {
         try {
@@ -77,12 +81,80 @@ export const getGmailEmails = async (
 
           // If looking for a specific email
           if (options.specificEmail) {
-            const message = await gmail.users.messages.get({
-              auth: oauth2ClientForAccount,
-              userId: "me",
-              id: options.specificEmail,
-              format: "full",
-            });
+            let message;
+            try {
+              message = await gmail.users.messages.get({
+                auth: oauth2ClientForAccount,
+                userId: "me",
+                id: options.specificEmail,
+                format: "full",
+              });
+            } catch (error: any) {
+              // If we get a 403 error, try refreshing the token and retry once
+              if (error.code === 403 || error.response?.status === 403) {
+                console.log(
+                  `Got 403 error fetching specific message for ${tokenData.email}, attempting token refresh...`
+                );
+                try {
+                  const refreshedToken = await forceRefreshTokenForEmail(
+                    userId,
+                    tokenData.email
+                  );
+
+                  // Create a new OAuth client with refreshed token
+                  const refreshedOAuth2Client = new google.auth.OAuth2(
+                    process.env.GOOGLE_CLIENT_ID,
+                    process.env.GOOGLE_CLIENT_SECRET,
+                    process.env.REDIRECT_URI
+                  );
+
+                  refreshedOAuth2Client.setCredentials({
+                    access_token: refreshedToken.access_token,
+                    refresh_token: refreshedToken.refresh_token,
+                    expiry_date: refreshedToken.expiry_date,
+                  });
+
+                  // Retry the request with refreshed token
+                  message = await gmail.users.messages.get({
+                    auth: refreshedOAuth2Client,
+                    userId: "me",
+                    id: options.specificEmail,
+                    format: "full",
+                  });
+
+                  // Update the client for subsequent requests
+                  oauth2ClientForAccount.setCredentials({
+                    access_token: refreshedToken.access_token,
+                    refresh_token: refreshedToken.refresh_token,
+                    expiry_date: refreshedToken.expiry_date,
+                  });
+                } catch (refreshError: any) {
+                  // If refresh fails or retry still gets 403, account needs re-authentication
+                  const isStill403 =
+                    refreshError.code === 403 ||
+                    refreshError.response?.status === 403;
+                  if (isStill403) {
+                    console.warn(
+                      `Account ${tokenData.email} requires re-authentication (403 error persists after token refresh). Skipping this account.`
+                    );
+                  } else {
+                    console.error(
+                      `Failed to refresh token for ${tokenData.email} while fetching specific message:`,
+                      refreshError
+                    );
+                  }
+                  // Return empty result instead of throwing - gracefully skip this account
+                  return {
+                    emails: [],
+                    nextPageToken: null,
+                    hasMore: false,
+                    email: tokenData.email,
+                  };
+                }
+              } else {
+                throw error;
+              }
+            }
 
             if (!message.data) return { emails: [], nextPageToken: null };
 
@@ -119,32 +191,176 @@ export const getGmailEmails = async (
             };
           }
 
-          // Regular email fetching
-          const response = await gmail.users.messages.list({
-            auth: oauth2ClientForAccount,
-            userId: "me",
-            maxResults: options.pageSize,
-            pageToken: options.pageToken,
-          });
+          // Regular email fetching with retry on 403 errors
+          let response;
+          try {
+            response = await gmail.users.messages.list({
+              auth: oauth2ClientForAccount,
+              userId: "me",
+              maxResults: options.pageSize,
+              pageToken: options.pageToken,
+            });
+          } catch (error: any) {
+            // If we get a 403 error, try refreshing the token and retry once
+            if (error.code === 403 || error.response?.status === 403) {
+              console.log(
+                `Got 403 error for ${tokenData.email}, attempting token refresh...`
+              );
+              try {
+                const refreshedToken = await forceRefreshTokenForEmail(
+                  userId,
+                  tokenData.email
+                );
+
+                // Create a new OAuth client with refreshed token
+                const refreshedOAuth2Client = new google.auth.OAuth2(
+                  process.env.GOOGLE_CLIENT_ID,
+                  process.env.GOOGLE_CLIENT_SECRET,
+                  process.env.REDIRECT_URI
+                );
+
+                refreshedOAuth2Client.setCredentials({
+                  access_token: refreshedToken.access_token,
+                  refresh_token: refreshedToken.refresh_token,
+                  expiry_date: refreshedToken.expiry_date,
+                });
+
+                // Retry the request with refreshed token
+                response = await gmail.users.messages.list({
+                  auth: refreshedOAuth2Client,
+                  userId: "me",
+                  maxResults: options.pageSize,
+                  pageToken: options.pageToken,
+                });
+
+                // Update the client for subsequent requests
+                oauth2ClientForAccount.setCredentials({
+                  access_token: refreshedToken.access_token,
+                  refresh_token: refreshedToken.refresh_token,
+                  expiry_date: refreshedToken.expiry_date,
+                });
+              } catch (refreshError: any) {
+                // If refresh fails or retry still gets 403, account needs re-authentication
+                const isStill403 =
+                  refreshError.code === 403 ||
+                  refreshError.response?.status === 403;
+                if (isStill403) {
+                  console.warn(
+                    `Account ${tokenData.email} requires re-authentication (403 error persists after token refresh). Skipping this account.`
+                  );
+                } else {
+                  console.error(
+                    `Failed to refresh token for ${tokenData.email}:`,
+                    refreshError
+                  );
+                }
+                // Return empty result instead of throwing - gracefully skip this account
+                return {
+                  emails: [],
+                  nextPageToken: null,
+                  hasMore: false,
+                  email: tokenData.email,
+                };
+              }
+            } else {
+              throw error;
+            }
+          }
 
           if (!response.data.messages) {
             return { emails: [], nextPageToken: response.data.nextPageToken };
           }
 
+          // Fetch individual messages with retry on 403 errors
           const messages = await Promise.all(
-            response.data.messages.map((message: any) =>
-              gmail.users.messages.get({
-                auth: oauth2ClientForAccount,
-                userId: "me",
-                id: message.id!,
-                format: "full",
-              })
-            )
+            response.data.messages.map(async (message: any) => {
+              try {
+                return await gmail.users.messages.get({
+                  auth: oauth2ClientForAccount,
+                  userId: "me",
+                  id: message.id!,
+                  format: "full",
+                });
+              } catch (error: any) {
+                // If we get a 403 error, try refreshing the token and retry once
+                if (error.code === 403 || error.response?.status === 403) {
+                  console.log(
+                    `Got 403 error fetching message ${message.id} for ${tokenData.email}, attempting token refresh...`
+                  );
+                  try {
+                    const refreshedToken = await forceRefreshTokenForEmail(
+                      userId,
+                      tokenData.email
+                    );
+
+                    // Create a new OAuth client with refreshed token
+                    const refreshedOAuth2Client = new google.auth.OAuth2(
+                      process.env.GOOGLE_CLIENT_ID,
+                      process.env.GOOGLE_CLIENT_SECRET,
+                      process.env.REDIRECT_URI
+                    );
+
+                    refreshedOAuth2Client.setCredentials({
+                      access_token: refreshedToken.access_token,
+                      refresh_token: refreshedToken.refresh_token,
+                      expiry_date: refreshedToken.expiry_date,
+                    });
+
+                    // Retry the request with refreshed token
+                    const retryResult = await gmail.users.messages.get({
+                      auth: refreshedOAuth2Client,
+                      userId: "me",
+                      id: message.id!,
+                      format: "full",
+                    });
+
+                    // Update the client for subsequent requests
+                    oauth2ClientForAccount.setCredentials({
+                      access_token: refreshedToken.access_token,
+                      refresh_token: refreshedToken.refresh_token,
+                      expiry_date: refreshedToken.expiry_date,
+                    });
+
+                    return retryResult;
+                  } catch (refreshError: any) {
+                    // If refresh fails or retry still gets 403, skip this message
+                    const isStill403 =
+                      refreshError.code === 403 ||
+                      refreshError.response?.status === 403;
+                    if (isStill403) {
+                      console.warn(
+                        `Account ${tokenData.email} requires re-authentication. Skipping message ${message.id}.`
+                      );
+                      // Return null to filter out later
+                      return null;
+                    } else {
+                      console.error(
+                        `Failed to refresh token for ${tokenData.email} while fetching message:`,
+                        refreshError
+                      );
+                      // Return null to filter out later instead of throwing
+                      return null;
+                    }
+                  }
+                } else {
+                  // For non-403 errors, return null to filter out
+                  console.warn(
+                    `Error fetching message ${message.id}:`,
+                    error.message
+                  );
+                  return null;
+                }
+              }
+            })
           );
+
+          // Filter out null messages (failed fetches)
+          const validMessages = messages.filter((msg) => msg !== null);
 
           // Process and filter emails
           const processedEmails = [];
-          for (const message of messages) {
+          for (const message of validMessages) {
+            if (!message?.data) continue;
             const headers = filterHeaders(message.data.payload?.headers);
             const subject =
               headers.find((h) => h.name === "Subject")?.value || "";
