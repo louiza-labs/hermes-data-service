@@ -53,7 +53,4 @@ app.route("/api", companiesRoute);
 
 // export default app;
 
-export default {
-  port: 3001, // Change 8080 to your preferred port number
-  fetch: app.fetch,
-};
+export default app;
