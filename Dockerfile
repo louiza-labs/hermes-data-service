@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies (with cache mount for better performance)
 FROM base AS deps
-COPY package.json bun.lock ./
+COPY package.json bun.lockb ./
 RUN bun install --frozen-lockfile --production
 
 # Copy source code
